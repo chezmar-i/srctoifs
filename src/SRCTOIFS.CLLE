@@ -1,0 +1,269 @@
+PGM PARM(&PBIB)
+
+/* =================================================================== */
+/* Programme : SRCTOIFS                                                */
+/* ------------------------------------------------------------------- */
+/* Exporte vers l'IFS les membres sources d'une ou plusieurs           */
+/* bibliothèques IBM i.                                                */
+/*                                                                     */
+/* Le paramètre reçu est utilisé comme préfixe de bibliothèque.        */
+/*                                                                     */
+/* Exemple :                                                           */
+/*                                                                     */
+/*     SRCTOIFS BIB(NEGO)                                              */
+/*                                                                     */
+/* peut exporter les sources de :                                     */
+/*                                                                     */
+/*     NEGO                                                            */
+/*     NEGODTA                                                         */
+/*     NEGODEV                                                         */
+/*     NEGOTEST                                                        */
+/*                                                                     */
+/* Destination :                                                       */
+/*                                                                     */
+/*     /home/SrcTxt/<bibliothèque>/<fichier source>/                   */
+/*                                                                     */
+/* Exemple :                                                           */
+/*                                                                     */
+/*     /home/SrcTxt/NEGO/QRPGLESRC/CLIENT.RPGLE                       */
+/*                                                                     */
+/* Les fichiers produits sont :                                       */
+/*     - encodés en UTF-8 (CCSID 1208)                                 */
+/*     - terminés par des fins de ligne LF                             */
+/*     - nommés <membre>.<type source>                                 */
+/* =================================================================== */
+
+
+/* ------------------------------------------------------------------- */
+/* Paramètre                                                           */
+/* ------------------------------------------------------------------- */
+
+DCL VAR(&PBIB) TYPE(*CHAR) LEN(10)
+
+
+/* ------------------------------------------------------------------- */
+/* Répertoires IFS                                                     */
+/* ------------------------------------------------------------------- */
+
+DCL VAR(&REPBASE) TYPE(*CHAR) LEN(256) +
+                  VALUE('/home/SrcTxt')
+
+DCL VAR(&REPBIB)  TYPE(*CHAR) LEN(256)
+
+DCL VAR(&REPSRC)  TYPE(*CHAR) LEN(256)
+
+
+/* ------------------------------------------------------------------- */
+/* Chemins du membre source et du fichier IFS                          */
+/* ------------------------------------------------------------------- */
+
+DCL VAR(&MEMBRESRC)  TYPE(*CHAR) LEN(512)
+
+DCL VAR(&FICHIERIFS) TYPE(*CHAR) LEN(512)
+
+
+/* ------------------------------------------------------------------- */
+/* Compteurs                                                           */
+/* ------------------------------------------------------------------- */
+
+DCL VAR(&NBLUS)    TYPE(*DEC) LEN(9 0) VALUE(0)
+
+DCL VAR(&NBCOPIES) TYPE(*DEC) LEN(9 0) VALUE(0)
+
+DCL VAR(&NBERR)    TYPE(*DEC) LEN(9 0) VALUE(0)
+
+
+/* ------------------------------------------------------------------- */
+/* Table de travail créée par LISTSRC                                  */
+/* ------------------------------------------------------------------- */
+
+DCLF FILE(SOURCES)
+
+
+/* =================================================================== */
+/* Gestion générale des erreurs                                        */
+/* =================================================================== */
+
+MONMSG MSGID(CPF0000) EXEC(GOTO CMDLBL(ERREUR))
+
+
+/* =================================================================== */
+/* Construction de la liste des membres sources                        */
+/* =================================================================== */
+
+CALL PGM(LISTSRC) PARM(&PBIB)
+
+OVRDBF FILE(SOURCES) TOFILE(QTEMP/SOURCES)
+
+
+/* =================================================================== */
+/* Création du répertoire de base                                      */
+/* =================================================================== */
+
+MKDIR DIR(&REPBASE) DTAAUT(*RWX) OBJAUT(*NONE)
+
+/* Le répertoire peut déjà exister. */
+MONMSG MSGID(CPFA0A0 CPFA0A9)
+
+
+/* =================================================================== */
+/* Boucle de lecture                                                   */
+/* =================================================================== */
+
+LECTURE:
+
+RCVF
+
+/* CPF0864 indique que la fin du fichier est atteinte. */
+MONMSG MSGID(CPF0864) EXEC(GOTO CMDLBL(FIN))
+
+CHGVAR VAR(&NBLUS) VALUE(&NBLUS + 1)
+
+
+/* =================================================================== */
+/* Répertoire de la bibliothèque                                       */
+/* =================================================================== */
+
+CHGVAR VAR(&REPBIB) +
+       VALUE(%TRIM(&REPBASE) *CAT '/' *CAT %TRIM(&BIB))
+
+MKDIR DIR(&REPBIB) DTAAUT(*RWX) OBJAUT(*NONE)
+
+/* Le répertoire peut déjà exister. */
+MONMSG MSGID(CPFA0A0 CPFA0A9)
+
+
+/* =================================================================== */
+/* Répertoire du fichier source                                        */
+/* =================================================================== */
+
+CHGVAR VAR(&REPSRC) +
+       VALUE(%TRIM(&REPBIB) *CAT '/' *CAT %TRIM(&FICSRC))
+
+MKDIR DIR(&REPSRC) DTAAUT(*RWX) OBJAUT(*NONE)
+
+/* Le répertoire peut déjà exister. */
+MONMSG MSGID(CPFA0A0 CPFA0A9)
+
+
+/* =================================================================== */
+/* Construction du chemin du membre dans QSYS.LIB                      */
+/*                                                                     */
+/* Exemple :                                                           */
+/*                                                                     */
+/* /QSYS.LIB/NEGO.LIB/QRPGLESRC.FILE/CLIENT.MBR                       */
+/* =================================================================== */
+
+CHGVAR VAR(&MEMBRESRC) +
+       VALUE('/QSYS.LIB/' *CAT +
+             %TRIM(&BIB) *CAT '.LIB/' *CAT +
+             %TRIM(&FICSRC) *CAT '.FILE/' *CAT +
+             %TRIM(&MEMSRC) *CAT '.MBR')
+
+
+/* =================================================================== */
+/* Construction du nom du fichier IFS                                  */
+/*                                                                     */
+/* Exemples :                                                          */
+/*                                                                     */
+/*     CLIENT.RPGLE                                                    */
+/*     FACTURE.SQLRPGLE                                                */
+/*     TRAITEMENT.CLLE                                                 */
+/* =================================================================== */
+
+CHGVAR VAR(&FICHIERIFS) +
+       VALUE(%TRIM(&REPSRC) *CAT '/' *CAT +
+             %TRIM(&MEMSRC) *CAT '.' *CAT +
+             %TRIM(&TYPSRC))
+
+
+/* =================================================================== */
+/* Copie du membre vers l'IFS                                          */
+/*                                                                     */
+/* STMFOPT(*REPLACE) : remplace un fichier déjà présent                */
+/* CVTDTA(*AUTO)     : conversion automatique des données              */
+/* STMFCCSID(1208)   : fichier cible en UTF-8                          */
+/* ENDLINFMT(*LF)    : fins de ligne LF                                */
+/* =================================================================== */
+
+CPYTOSTMF FROMMBR(&MEMBRESRC) +
+           TOSTMF(&FICHIERIFS) +
+           STMFOPT(*REPLACE) +
+           CVTDTA(*AUTO) +
+           STMFCCSID(1208) +
+           ENDLINFMT(*LF)
+
+
+/* ------------------------------------------------------------------- */
+/* Une erreur sur un membre ne doit pas interrompre l'ensemble de      */
+/* l'extraction.                                                       */
+/*                                                                     */
+/* On comptabilise l'erreur, on envoie un message et on poursuit.      */
+/* ------------------------------------------------------------------- */
+
+MONMSG MSGID(CPF0000) EXEC(DO)
+
+   CHGVAR VAR(&NBERR) VALUE(&NBERR + 1)
+
+   SNDPGMMSG +
+      MSG('Impossible d''exporter ' *CAT +
+          %TRIM(&BIB) *CAT '/' *CAT +
+          %TRIM(&FICSRC) *CAT '/' *CAT +
+          %TRIM(&MEMSRC)) +
+      TOPGMQ(*EXT)
+
+   GOTO CMDLBL(SUIVANT)
+
+ENDDO
+
+
+/* La copie s'est correctement terminée. */
+
+CHGVAR VAR(&NBCOPIES) VALUE(&NBCOPIES + 1)
+
+
+/* =================================================================== */
+/* Membre suivant                                                      */
+/* =================================================================== */
+
+SUIVANT:
+
+GOTO CMDLBL(LECTURE)
+
+
+/* =================================================================== */
+/* Fin normale                                                         */
+/* =================================================================== */
+
+FIN:
+
+SNDPGMMSG +
+   MSG('Extraction terminée : ' *CAT +
+       %CHAR(&NBLUS) *BCAT 'membre(s) trouvé(s), ' *CAT +
+       %CHAR(&NBCOPIES) *BCAT 'copié(s), ' *CAT +
+       %CHAR(&NBERR) *BCAT 'erreur(s).') +
+   TOPGMQ(*EXT)
+
+GOTO CMDLBL(FINPGM)
+
+
+/* =================================================================== */
+/* Erreur inattendue                                                   */
+/* =================================================================== */
+
+ERREUR:
+
+SNDPGMMSG +
+   MSGID(CPF9898) +
+   MSGF(QCPFMSG) +
+   MSGDTA('L''extraction des sources s''est interrompue suite à une erreur.') +
+   MSGTYPE(*ESCAPE)
+
+
+/* =================================================================== */
+/* Fin                                                                 */
+/* =================================================================== */
+
+FINPGM:
+
+ENDPGM
