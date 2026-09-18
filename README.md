@@ -79,15 +79,14 @@ trouvés, copiés et en erreur.
 
 ## Installation
 
-Les sources du projet se trouvent dans le répertoire `src`.
+La procédure d'installation est décrite pas à pas dans
+[INSTALL.md](INSTALL.md).
 
-Le fichier `install/SOURCES.SQL` permet de créer le fichier modèle
-`SOURCES` nécessaire à la compilation de `SRCTOIFS.CLLE`.
+SRCTOIFS est fourni sous forme de sources et ne nécessite aucune
+dépendance externe.
 
-L'installation automatisée n'est pas encore disponible.
-
-Pour cette première version, les objets doivent être compilés
-manuellement dans la bibliothèque de votre choix.
+> SRCTOIFS exporte les sources dans `/home/SrcTxt`.
+> Le profil utilisé doit disposer des droits nécessaires sur ce répertoire.
 
 ## Pourquoi ce projet ?
 
